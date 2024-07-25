@@ -34,7 +34,7 @@ The following script performs EEG data preprocessing through several steps:
 #%%
 # Participant ID and condition being processed
 # participant ID  Ex: S02; S40
-id = '051'
+id = '022'
 week = 1
 condition = 'baseline' #name of condition that it should be equal to the folder name
 
@@ -120,7 +120,7 @@ log_preprocessing.log_detail('filter_type', 'bandpass')
 raw_filtered.compute_psd().plot()
 
 # Plot the filtered data for visual inspection to identify bad channels
-raw_filtered.plot()
+raw_filtered.plot(scalings = 'auto')
 plt.show(block=True)
 
 # Add the filtered data to the report
@@ -168,7 +168,7 @@ epochs_clean = epochs # to skip autoreject
 ar_reject_epochs = [] # to skip autoreject  
 
 # Manually inspect and reject bad epochs
-epochs_clean.plot()
+epochs_clean.plot(scalings = 'auto')
 plt.show(block=True)
 
 # Log the epochs rejected manually
@@ -199,7 +199,6 @@ epochs_clean.save(os.path.join(save_folder, f'{id}-cleaned_epochs_eeg.fif'), ove
 n_components = 0.999  # Number of components to keep; typically should be higher, like 0.999
 method = 'picard'  # The algorithm to use for ICA
 max_iter = 512  # Maximum number of iterations; typically should be higher, like 500 or 1000
-fit_params = dict(fastica_it=5)  # Additional parameters for the 'fastica' method
 random_state = 42  # Seed for random number generator for reproducibility
 
 # Initialize the ICA object with the specified parameters
@@ -239,7 +238,7 @@ log_preprocessing.log_detail('ica_max_iter', max_iter)
 log_preprocessing.log_detail('ica_random_state', random_state)
 
 # Manually inspect the epochs after ICA application
-epochs_ica.plot()
+epochs_ica.plot(scalings = 'auto')
 plt.show(block=True)
 
 # Log manually rejected epochs after ICA

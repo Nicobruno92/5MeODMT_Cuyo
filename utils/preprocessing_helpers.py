@@ -23,12 +23,12 @@ def set_chs_montage(raw):
         'EEG Fz-Ref': 'Fz',
         'EEG Cz-Ref': 'Cz',
         'EEG Pz-Ref': 'Pz',
-        'ECG': 'ECG',
+        'ECG': 'ECG_muerto',
         'Resp oro-nasal': 'Resp',
         'TORAXIC BELT': 'Toracic',
         'ABDOMINAL BELT': 'Abdominal',
         'MICROPHONE': 'Microphone',
-        'EMG-0': 'EMG0',
+        'EMG-0': 'ECG',
         'EMG-1': 'EMG1',
         'EMG-2': 'EMG2',
         'EMG-3': 'EMG3',
@@ -56,12 +56,13 @@ def set_chs_montage(raw):
         'Toracic': 'misc',
         'Abdominal': 'misc',
         'Microphone': 'misc',
-        'EMG0': 'emg', 'EMG1': 'emg', 'EMG2': 'emg', 'EMG3': 'emg',
+        'ECG_muerto': 'emg', 'EMG1': 'emg', 'EMG2': 'emg', 'EMG3': 'emg',
         'EXT1': 'stim', 'EXT2': 'stim'
     }
     raw.set_channel_types(channel_types)
 
-    raw.info['bads'] = ['Resp', 'Toracic', 'Abdominal', 'Microphone', 'EMG0', 'EMG1', 'EMG2', 'EMG3', 'EXT1', 'EXT2']
+    raw.info['bads'] = ['Resp', 'Toracic', 'Abdominal', 'Microphone', 'ECG_muerto', 'EMG1', 'EMG2', 'EMG3', 'EXT1', 'EXT2']
+    
 
     raw.drop_channels(raw.info['bads'])
 
