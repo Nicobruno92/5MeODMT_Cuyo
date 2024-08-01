@@ -1,4 +1,26 @@
+import numpy as np
 import mne
+
+
+def read_edf_akonic(path):
+    # Load the original EDF file
+    raw = mne.io.read_raw_edf(path, preload=True, verbose=False)
+
+    # Get the data and info from the original raw file
+    data, times = raw[:, :]
+
+    # Create a new Info object without the filter settings
+    new_info = mne.create_info(ch_names=raw.info['ch_names'], sfreq=raw.info['sfreq'],
+                            ch_types=['eeg' for _ in raw.info['ch_names']])
+    # new_info['meas_date'] = raw.info['meas_date']
+    # new_info['Participant'] = raw.info['Participant']
+    new_info['line_freq'] = 50
+
+    # Create a new RawArray with the same data but new info
+    new_raw = mne.io.RawArray(data, new_info, first_samp=raw.first_samp)
+    new_raw.set_meas_date(raw.info['meas_date'])
+
+    return new_raw
 
 def set_chs_montage(raw):
     rename_dict = {

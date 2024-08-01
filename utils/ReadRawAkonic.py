@@ -1,32 +1,15 @@
 import numpy as np
 import mne
-
+from io import StringIO
 class read_raw_akonic:
     def __init__(self, eeg_path):
         self.eeg_path = eeg_path
         self.raw = self._read_raw_akonic()
 
     def _read_raw_akonic(self):
-        # Load data with error handling for inconsistent rows
-        try:
-            data = np.loadtxt(self.eeg_path)
-        except ValueError as e:
-            print(f"Error loading data: {e}")
-            # Attempt to load the data row by row, skipping inconsistent rows
-            data_list = []
-            with open(self.eeg_path, 'r') as file:
-                for i, line in enumerate(file):
-                    try:
-                        row_data = np.fromstring(line, sep=' ')
-                        if len(row_data) == 256:  # Assuming the correct number of columns is 256
-                            data_list.append(row_data)
-                        else:
-                            print(f"Skipping row {i} due to incorrect number of columns: {len(row_data)}")
-                    except ValueError:
-                        print(f"Skipping row {i} due to parsing error")
-            data = np.array(data_list)
-            print(f"Loaded data with shape: {data.shape}")
-
+        # Load the data
+        data = self.load_data()
+        
         # Check if the number of channels matches the expected number (32 channels)
         if data.shape[0] != 32:  # Assuming the first dimension is the number of channels
             raise ValueError(f"Expected 32 channels, but got {data.shape[0]}")
@@ -100,3 +83,22 @@ class read_raw_akonic:
         self.raw = self.raw.set_montage('standard_1020')
 
         return self.raw
+    
+    def load_data(self):
+        try:
+            data = np.loadtxt(self.eeg_path)
+            return data
+        except ValueError:
+            cropped_lines = self.remove_first_n_lines(4)
+            data = np.genfromtxt(StringIO(''.join(cropped_lines)))
+            return data
+    
+    def remove_first_n_lines(self, n, write=False):
+        with open(self.eeg_path, 'r', encoding='utf-8') as file:
+            cropped_lines = file.readlines()[n:]
+
+        if write:
+            with open(self.eeg_path, 'w', encoding='utf-8') as file:
+                file.writelines(cropped_lines)
+        
+        return cropped_lines

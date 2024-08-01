@@ -13,6 +13,10 @@ import mne
 # Importing libraries for automatic rejection of bad epochs
 from autoreject import AutoReject, get_rejection_threshold
 
+# tag automatically ICA components
+# requires pytorch
+from mne_icalabel import label_components
+
 # Import helper functions for preprocessing
 import utils.preprocessing_helpers as preprocessing_helpers
 from utils.log_preprocessing import LogPreprocessingDetails
@@ -57,7 +61,7 @@ save_folder = os.path.join(root_path, derivatives_folder, condition, id)
 os.makedirs(save_folder, exist_ok=True)
 
 # Initialize a report to document the preprocessing steps
-report = mne.Report(title=f'Preprocessing Subject {id}, for condition {condition} in week {week}')
+report = mne.Report(title=f'Preprocessing Subject {id}, for condition {condition} in week {week}', verbose = False)
 
 # Path to the JSON file where preprocessing details will be stored
 json_path = 'logs_preprocessing_details_all_subjects.json'
@@ -71,16 +75,12 @@ log_preprocessing = LogPreprocessingDetails(json_path, id, condition, week)
 
 # Construct the full file path and read the raw EEG data file
 raw_file = os.path.join(root_path,  raw_folder, condition, str(id),filename)
-raw = mne.io.read_raw_edf(raw_file, preload=True, verbose=False)
+raw =   preprocessing_helpers.read_edf_akonic(raw_file)
 
 # Set the montage (electrode positions)
 raw = preprocessing_helpers.set_chs_montage(raw)
-print(raw.info)
 
-# set correct info
-raw.info['line_freq'] = 50
-# raw.info['highpass'] = 1
-# raw.info['lowpass'] = 45 
+print(raw.info)
 
 # Plot sensor location in the scalp
 # raw.plot_sensors(show_names=True)
@@ -97,11 +97,13 @@ log_preprocessing.log_detail('info', str(raw.info))
 ##################################
 ########    2.FILTERING   ########
 ##################################
+#notch filter to eliminate power line noise.
+raw_filtered = raw.copy().notch_filter(freqs=raw.info['line_freq'])
 
 # Apply a band-pass filter to keep frequencies between 1 and 45 Hz
 hpass = 1
 lpass = 45
-raw_filtered = raw.copy().filter(l_freq=hpass, h_freq=lpass)
+raw_filtered.filter(l_freq=hpass, h_freq=lpass)
 
 # Save the filtered data
 raw_filtered.save(os.path.join(save_folder, f'{id}-filtered_eeg.fif'), overwrite=True)
@@ -164,8 +166,8 @@ log_preprocessing.log_detail('autoreject_epochs', ar_reject_epochs)
 log_preprocessing.log_detail('autoreject_threshold', reject)
 log_preprocessing.log_detail('len_autoreject_epochs', len(ar_reject_epochs))
 #%%
-epochs_clean = epochs # to skip autoreject  
-ar_reject_epochs = [] # to skip autoreject  
+# epochs_clean = epochs # to skip autoreject  
+# ar_reject_epochs = [] # to skip autoreject  
 
 # Manually inspect and reject bad epochs
 epochs_clean.plot(scalings = 'auto')
@@ -197,7 +199,7 @@ epochs_clean.save(os.path.join(save_folder, f'{id}-cleaned_epochs_eeg.fif'), ove
 
 # Parameters for ICA (Independent Component Analysis) to remove artifacts
 n_components = 0.999  # Number of components to keep; typically should be higher, like 0.999
-method = 'picard'  # The algorithm to use for ICA
+method = 'picard'  # The algorithm to use for ICA # pip install python-picard
 max_iter = 512  # Maximum number of iterations; typically should be higher, like 500 or 1000
 random_state = 42  # Seed for random number generator for reproducibility
 
@@ -207,16 +209,36 @@ ica = mne.preprocessing.ICA(n_components=n_components, method=method, max_iter=m
 # Fit the ICA model to the cleaned epochs
 ica.fit(epochs_clean)
 
-# create epochs based on ECG events, find EOG artifacts in the data via pattern
-# matching, and exclude the ECG-related ICA components
-ecg_epochs = mne.preprocessing.create_ecg_epochs(raw=raw)
-ecg_components, ecg_scores = ica.find_bads_ecg(
-    inst=ecg_epochs,
-    ch_name='ECG',  # a channel close to the eye
-    threshold=1  # lower than the default threshold
+# find EOG artifacts in the data via pattern matching, and exclude the EOG-related ICA components
+eog_components, eog_scores = ica.find_bads_eog(
+    inst=epochs_clean,
+    ch_name="Fp1",  # a channel close to the eye
+    # threshold=1  # lower than the default threshold
 )
-ica.exclude = ecg_components
+print(f"EOG components detected: {eog_components}")
 
+# find ECG artifacts in the data via pattern matching, and exclude the ECG-related ICA components
+ecg_components, ecg_scores = ica.find_bads_ecg(
+    inst=epochs_clean,
+    ch_name="ECG",  # a channel close to the eye
+    # threshold=1  # lower than the default threshold
+)
+print(f"ECG components detected: {ecg_components}")
+
+# find muscle artifacts in the data via pattern matching, and exclude the muscle-related ICA components
+muscle_components, muscle_scores = ica.find_bads_muscle(epochs_clean, threshold=0.7)
+print(f"Muscle components detected: {muscle_components}")
+# ica.plot_scores(muscle_scores, exclude=muscle_components)
+
+# eclude eog and ecg components detected
+ica.exclude = ecg_components + eog_components + muscle_components
+
+##### Classify the components using ICLabel model #######
+# run the model on the ICA components
+ic_labels = label_components(epochs_clean, ica, method="iclabel")
+# print labels of each component
+print("Classification of all ICA components. Results:")
+print(ic_labels["labels"])
 
 # (Optional) Plot the ICA components for visual inspection
 # ica.plot_components(inst=epochs_clean, picks=range(15))
