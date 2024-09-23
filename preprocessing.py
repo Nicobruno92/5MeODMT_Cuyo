@@ -12,6 +12,8 @@ import mne
 
 # Importing libraries for automatic rejection of bad epochs
 from autoreject import AutoReject, get_rejection_threshold
+from pyprep import NoisyChannels
+
 
 # tag automatically ICA components
 # requires pytorch
@@ -106,7 +108,7 @@ lpass = 45
 raw_filtered.filter(l_freq=hpass, h_freq=lpass)
 
 # Save the filtered data
-raw_filtered.save(os.path.join(save_folder, f'{id}-filtered_eeg.fif'), overwrite=True)
+# raw_filtered.save(os.path.join(save_folder, f'{id}-filtered_eeg.fif'), overwrite=True)
 
 # Log the filter settings
 log_preprocessing.log_detail('hpass_filter', hpass)
@@ -121,8 +123,16 @@ log_preprocessing.log_detail('filter_type', 'bandpass')
 # Plots PSD of the filtered data
 raw_filtered.compute_psd().plot()
 
+#automatically mark bad channels
+nd = NoisyChannels(raw_filtered,do_detrend = False, random_state=42)
+nd.find_all_bads(ransac=True, channel_wise=True) #if it slows down, set channel_wise to False
+bads = nd.get_bads()
+print(f"Bad channels detected: {bads}")
+if bads != None:
+    raw_filtered.info["bads"] = bads
+
 # Plot the filtered data for visual inspection to identify bad channels
-raw_filtered.plot(scalings = 'auto')
+raw_filtered.plot(n_channels=32)
 plt.show(block=True)
 
 # Add the filtered data to the report
@@ -141,7 +151,7 @@ duration_epochs = 2.0
 epochs = mne.make_fixed_length_epochs(raw_filtered, duration=duration_epochs, preload=True, verbose=None)
 
 # Save the epoched data
-epochs.save(os.path.join(save_folder, f'{id}-epoched_eeg.fif'), overwrite=True)
+# epochs.save(os.path.join(save_folder, f'{id}-epoched_eeg.fif'), overwrite=True)
 
 # Add the epochs to the report
 report.add_epochs(epochs=epochs, title='Epochs')
@@ -156,7 +166,8 @@ log_preprocessing.log_detail('duration_epochs', duration_epochs)
 ##################################
 
 # Automatically reject bad epochs using AutoReject
-ar = AutoReject(thresh_method='random_search', random_state=42)
+folds = 10  # Number of folds for cross-validation
+ar = AutoReject(thresh_method="bayesian_optimization", cv = folds, random_state=42, n_jobs = -1, )
 epochs_clean = ar.fit_transform(epochs)
 reject = get_rejection_threshold(epochs)
 
@@ -189,16 +200,14 @@ report.add_epochs(epochs=epochs_clean, title='Epochs clean', psd=False)
 
 # Save the cleaned epochs
 epochs_clean.drop_bad()
-epochs_clean.save(os.path.join(save_folder, f'{id}-cleaned_epochs_eeg.fif'), overwrite=True)
+# epochs_clean.save(os.path.join(save_folder, f'{id}-cleaned_epochs_eeg.fif'), overwrite=True)
 
 #%% ICA
 ##################################
 ######         ICA        ########
 ##################################
-
-
 # Parameters for ICA (Independent Component Analysis) to remove artifacts
-n_components = 0.999  # Number of components to keep; typically should be higher, like 0.999
+n_components = 15  # Number of components to keep; typically should be higher, like 0.999
 method = 'picard'  # The algorithm to use for ICA # pip install python-picard
 max_iter = 512  # Maximum number of iterations; typically should be higher, like 500 or 1000
 random_state = 42  # Seed for random number generator for reproducibility
@@ -230,15 +239,34 @@ muscle_components, muscle_scores = ica.find_bads_muscle(epochs_clean, threshold=
 print(f"Muscle components detected: {muscle_components}")
 # ica.plot_scores(muscle_scores, exclude=muscle_components)
 
-# eclude eog and ecg components detected
-ica.exclude = ecg_components + eog_components + muscle_components
-
 ##### Classify the components using ICLabel model #######
 # run the model on the ICA components
 ic_labels = label_components(epochs_clean, ica, method="iclabel")
 # print labels of each component
 print("Classification of all ICA components. Results:")
 print(ic_labels["labels"])
+
+# Extract ICA component labels
+label_names = ic_labels['labels']
+# Combine all artifact components from the pattern matching methods
+pattern_matching_artifacts = np.unique(ecg_components + eog_components + muscle_components)
+
+# Identify the ICA components that correspond to a 'channel noise' in ICLabel
+channel_artifact_indices = [i for i, label in enumerate(label_names) if label == 'channel noise']
+
+# Find components that coincide between pattern matching and ICLabel output for exclusion
+# We'll only exclude components that match the artifacts found via pattern matching 
+# and are classified as 'muscle artifact', 'eye blink', 'heart beat', or 'channel noise'
+to_exclude = []
+for idx in pattern_matching_artifacts:
+    if label_names[idx] in ['muscle artifact', 'eye blink', 'heart beat', 'channel noise']:
+        to_exclude.append(idx)
+
+# Also ensure to include 'channel noise' components that were found only by ICLabel
+to_exclude = np.unique(to_exclude + channel_artifact_indices)
+
+# Exclude the selected components
+ica.exclude = to_exclude.tolist()
 
 # (Optional) Plot the ICA components for visual inspection
 # ica.plot_components(inst=epochs_clean, picks=range(15))
@@ -249,6 +277,11 @@ plt.show(block=True)
 
 # Add the ICA results to the report
 report.add_ica(ica, title='ICA', inst=epochs_clean)
+
+##### FINAL EPOCH CLEANING #######
+# baseline = (-0.3, 0)  # to be done after ICA
+# epochs_ica.apply_baseline(baseline)
+# log_preprocessing.log_detail("baseline", baseline)
 
 # Apply the ICA solution to the cleaned epochs
 epochs_ica = ica.apply(inst=epochs_clean)
@@ -276,7 +309,7 @@ log_preprocessing.log_detail('epochs_drop_log', epochs_ica.drop_log)
 log_preprocessing.log_detail('epochs_drop_log_description', epochs_ica.drop_log)
 
 # Save the epochs after ICA application and drop epochs
-epochs_ica.save(os.path.join(save_folder, f'{id}-ica_eeg.fif'), overwrite=True)
+# epochs_ica.save(os.path.join(save_folder, f'{id}-ica_eeg.fif'), overwrite=True)
 
 
 #%% 
